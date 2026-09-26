@@ -90,8 +90,4 @@ Contributing
 
 Issues and pull requests are welcome. macOS/Linux support, additional LLM or transcription providers, and general bug fixes are all good places to start — open an issue first if you're planning something larger.
 
-License
-
-Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) — see LICENSE. In short: if you modify this project and run it as a network service for others, you must make your modified source available to that service's users.
-
 If this is useful, a ⭐ on the repo helps other people searching for an AI interview assistant find it too.
