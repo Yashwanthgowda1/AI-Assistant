@@ -12,7 +12,7 @@ Features:
   • Global hotkey  Ctrl+Shift+Space  to show/hide
 """
 from __future__ import annotations
-import sys, os, logging, threading
+import sys, os, logging, threading, html
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -46,6 +46,20 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Worker thread — runs AI + web-search off the GUI thread
 # ─────────────────────────────────────────────────────────────────────────────
+_WEB_KEYWORDS = (
+    "latest", "current", "today", "recent", "2024", "2025", "2026", "news",
+    "who is", "when did", "how much", "price", "version", "release", "update",
+)
+
+
+def _needs_web(question: str) -> bool:
+    """Only search the web for questions that need current/factual info.
+    Coding, concept and behavioural interview answers don't need it — skipping
+    the search removes seconds of latency."""
+    q = question.lower()
+    return any(kw in q for kw in _WEB_KEYWORDS)
+
+
 class AnswerWorker(QThread):
     answer_ready  = pyqtSignal(str)
     status_update = pyqtSignal(str)
@@ -60,23 +74,19 @@ class AnswerWorker(QThread):
 
     def run(self):
         try:
-            # Run web search and AI call in parallel threads for speed
             import concurrent.futures
             context = ""
-            if self.use_web:
+            if self.use_web and _needs_web(self.question):
                 self.status_update.emit("Searching + thinking…")
-                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-                    web_future = ex.submit(format_context, self.question)
-                    # Start AI immediately with no context, then retry with context if web is fast
-                    context = web_future.result(timeout=4)  # max 4s wait for web
+                try:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                        web_future = ex.submit(format_context, self.question)
+                        context = web_future.result(timeout=2)  # max 2s wait for web
+                except concurrent.futures.TimeoutError:
+                    context = ""  # web too slow — answer without it
             else:
                 self.status_update.emit("Thinking…")
             answer = self.ai.chat(self.question, context=context, resume=self.resume)
-            self.answer_ready.emit(answer)
-        except concurrent.futures.TimeoutError:
-            # Web took too long — answer without context
-            self.status_update.emit("Answering (web timeout)…")
-            answer = self.ai.chat(self.question, context="", resume=self.resume)
             self.answer_ready.emit(answer)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -146,19 +156,11 @@ class MeetingFilterWorker(QThread):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Worker — waits for MeetingListener to stop, then transcribes all audio
+# Qt signal bridge — lets the meeting listener thread emit into the GUI thread
 # ─────────────────────────────────────────────────────────────────────────────
-class TranscribeWorker(QThread):
-    done = pyqtSignal(str)
-
-    def __init__(self, listener):
-        super().__init__()
-        self.listener = listener
-
-    def run(self):
-        self.listener.join(timeout=10)
-        text = self.listener.transcribe_all()
-        self.done.emit(text)
+class _MeetingTextSignal(QThread):
+    text_ready = pyqtSignal(str)
+    def run(self): pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -382,8 +384,8 @@ class MainWindow(QMainWindow):
             Qt.Tool
         )
         self.setWindowOpacity(0.95)
-        self.setMinimumSize(540, 480)
-        self.resize(680, 750)
+        self.setMinimumSize(700, 600)
+        self.resize(900, 950)
         self.setStyleSheet(DARK_STYLE)
 
         central = QWidget()
@@ -435,27 +437,44 @@ class MainWindow(QMainWindow):
 
         # ── provider quick-select row ─────────────────────────────
         prov_row = QHBoxLayout()
-        prov_row.addWidget(QLabel("Provider:"))
+        prov_lbl = QLabel("Provider:")
+        prov_lbl.setStyleSheet("font-weight:bold; font-size:13px;")
+        prov_row.addWidget(prov_lbl)
         self.provider_cb = QComboBox()
         self.provider_cb.addItems(["groq", "ollama", "mistral", "openai"])
         self.provider_cb.setCurrentText(self.ai.provider)
-        self.provider_cb.setFixedWidth(100)
+        self.provider_cb.setFixedWidth(110)
+        self.provider_cb.setStyleSheet("font-size:13px; padding:4px 8px;")
         self.provider_cb.currentTextChanged.connect(self._quick_provider_change)
         prov_row.addWidget(self.provider_cb)
 
-        prov_row.addWidget(QLabel("Model:"))
-        self.model_cb = QComboBox()
-        self.model_cb.setEditable(True)
-        self.model_cb.setMinimumWidth(180)
-        self._refresh_model_combo(self.ai.provider)
-        self.model_cb.currentTextChanged.connect(self._quick_model_change)
-        prov_row.addWidget(self.model_cb)
-
-        self.web_chk = QCheckBox("Web")
+        self.web_chk = QCheckBox("Web Search")
         self.web_chk.setChecked(True)
         self.web_chk.setToolTip("Enrich answer with DuckDuckGo search")
+        self.web_chk.setStyleSheet("font-size:12px;")
         prov_row.addWidget(self.web_chk)
         root.addLayout(prov_row)
+
+        # ── model selection row (prominent) ───────────────────────
+        model_row = QHBoxLayout()
+        model_lbl = QLabel("🤖  Model:")
+        model_lbl.setStyleSheet("font-weight:bold; font-size:14px; color:#e94560;")
+        model_row.addWidget(model_lbl)
+        self.model_cb = QComboBox()
+        self.model_cb.setEditable(True)
+        self.model_cb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.model_cb.setMinimumHeight(32)
+        self.model_cb.setStyleSheet(
+            "QComboBox { font-size:14px; font-weight:bold; padding:4px 10px; "
+            "border:2px solid #e94560; border-radius:6px; color:#e0e0e0; "
+            "background:#16213e; }"
+            "QComboBox QAbstractItemView { font-size:13px; }"
+        )
+        self._refresh_model_combo(self.ai.provider)
+        self.model_cb.currentTextChanged.connect(self._quick_model_change)
+        self._attach_model_completer()
+        model_row.addWidget(self.model_cb, 1)
+        root.addLayout(model_row)
 
         # ── API key + model name (editable directly in UI) ────────
         key_row = QHBoxLayout()
@@ -478,6 +497,16 @@ class MainWindow(QMainWindow):
         )
         key_row.addWidget(show_key_btn)
         root.addLayout(key_row)
+
+        # ── active provider indicator ─────────────────────────────
+        self.provider_indicator = QLabel()
+        self.provider_indicator.setStyleSheet(
+            "color:#86efac; background:#14532d; font-size:11px; font-weight:bold;"
+            "padding:3px 10px; border-radius:4px;"
+        )
+        self._update_provider_indicator()
+        root.addWidget(self.provider_indicator)
+
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
         self.chat_display.setMinimumHeight(380)
@@ -592,7 +621,6 @@ class MainWindow(QMainWindow):
     # ── provider / model ─────────────────────────────────────────
     def _quick_provider_change(self, provider: str):
         self._refresh_model_combo(provider)
-        # load saved key for this provider from env
         key_map = {
             "groq":    os.getenv("GROQ_API_KEY", ""),
             "mistral": os.getenv("MISTRAL_API_KEY", ""),
@@ -600,12 +628,15 @@ class MainWindow(QMainWindow):
             "ollama":  "",
         }
         env_key = key_map.get(provider, "")
-        # keep whatever the user manually typed if it's already there
-        current_key = self.api_key_input.text().strip()
-        if not current_key:
-            self.api_key_input.setText(env_key)
-        self.ai.update(provider, self.model_cb.currentText(),
-                       api_key=current_key or env_key)
+        # always switch the key field to the new provider's key (clears old provider's key)
+        self.api_key_input.setText(env_key)
+        self.ai.update(provider, self.model_cb.currentText(), api_key=env_key)
+        self._update_provider_indicator()
+
+    def _update_provider_indicator(self):
+        p = self.ai.provider or "unknown"
+        m = self.ai.model or "—"
+        self.provider_indicator.setText(f"Active: {p.upper()}  |  {m}")
 
     def _quick_model_change(self, model: str):
         self.ai.model = model
@@ -613,7 +644,8 @@ class MainWindow(QMainWindow):
     def _on_api_key_changed(self):
         key = self.api_key_input.text().strip()
         self.ai.api_key = key
-        self.ai._setup()   # re-init client with new key
+        self.ai._setup()
+        self._update_provider_indicator()
         self.status_bar.showMessage(
             f"API key updated for {self.ai.provider}" if key else "API key cleared"
         )
@@ -626,6 +658,22 @@ class MainWindow(QMainWindow):
             self.model_cb.addItems(models)
         self.model_cb.setCurrentText(self.ai.model if self.ai.model and self.ai.model in models else (models[0] if models else ""))
         self.model_cb.blockSignals(False)
+        if hasattr(self, "model_cb"):
+            self._attach_model_completer()
+
+    def _attach_model_completer(self):
+        from PyQt5.QtWidgets import QCompleter
+        from PyQt5.QtCore import Qt
+        models = [self.model_cb.itemText(i) for i in range(self.model_cb.count())]
+        completer = QCompleter(models, self.model_cb)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.popup().setStyleSheet(
+            "QListView { background:#16213e; color:#e0e0e0; font-size:13px; "
+            "border:1px solid #e94560; selection-background-color:#0f3460; }"
+        )
+        self.model_cb.setCompleter(completer)
 
     def _open_settings(self):
         dlg = SettingsDialog(self.ai, self)
@@ -645,6 +693,11 @@ class MainWindow(QMainWindow):
         question = self.question_input.text().strip()
         if not question:
             return
+        # apply any key typed in the field that hasn't been committed yet
+        typed_key = self.api_key_input.text().strip()
+        if typed_key and typed_key != self.ai.api_key:
+            self.ai.api_key = typed_key
+            self.ai._setup()
         self.question_input.clear()
         self._append_chat("You", question, "#61dafb")
         self._run_worker(question)
@@ -652,6 +705,8 @@ class MainWindow(QMainWindow):
     def _run_worker(self, question: str):
         if self.worker and self.worker.isRunning():
             self.worker.quit()
+
+        self.status_bar.showMessage(f"Using: {self.ai.provider} / {self.ai.model}")
 
         self.worker = AnswerWorker(
             question, self.ai, self.web_chk.isChecked(),
@@ -721,7 +776,11 @@ class MainWindow(QMainWindow):
             self._start_meeting()
 
     def _start_meeting(self):
-        self.meeting_listener = MeetingListener()
+        self._meeting_signal = _MeetingTextSignal()
+        self._meeting_signal.text_ready.connect(self._on_meeting_text)
+        self.meeting_listener = MeetingListener(
+            on_text=lambda t: self._meeting_signal.text_ready.emit(t)
+        )
         self.meeting_listener.start_listening()
         self.meeting_active = True
         self.meeting_btn.setText("🔴 Stop Listening")
@@ -729,25 +788,16 @@ class MainWindow(QMainWindow):
         self.meeting_btn.setStyleSheet(
             "QPushButton{background:#c0392b;font-size:13px;}"
         )
-        self.status_bar.showMessage("🎧 Recording meeting audio… click Stop to transcribe & answer")
+        self.status_bar.showMessage("🎧 Listening live — transcribes every 5 s automatically")
 
     def _stop_meeting(self):
         if self.meeting_listener:
             self.meeting_listener.stop_listening()
-            self.status_bar.showMessage("Transcribing meeting audio… please wait")
-            self._transcribe_worker = TranscribeWorker(self.meeting_listener)
-            self._transcribe_worker.done.connect(self._on_meeting_transcribed)
-            self._transcribe_worker.start()
         self.meeting_active = False
         self.meeting_btn.setText("🎧 Meeting Listen")
         self.meeting_btn.setProperty("active", "false")
         self.meeting_btn.setStyleSheet("")
-
-    def _on_meeting_transcribed(self, text: str):
-        if not text:
-            self.status_bar.showMessage("No speech detected in recording")
-            return
-        self._on_meeting_text(text)
+        self.status_bar.showMessage("Meeting listener stopped")
 
     def _on_meeting_text(self, text: str):
         worker = MeetingFilterWorker(text, self.ai, self._resume_text, self.web_chk.isChecked())
@@ -786,7 +836,8 @@ class MainWindow(QMainWindow):
         self._screen_worker.start()
 
     def _on_screen_question(self, question: str):
-        if not question:
+        q = question.strip()
+        if not q or q.upper() == "NONE" or q.upper().startswith("NONE"):
             self.status_bar.showMessage("No question found on screen")
             return
         self._append_chat("Screen", question, "#f0a500")
@@ -800,17 +851,11 @@ class MainWindow(QMainWindow):
         self.chat_display.setTextCursor(cursor)
 
         if role == "Assistant":
-            self.chat_display.append(
-                '<p style="color:#4a7eff;font-size:10px;margin:10px 0 4px 0;'
-                'letter-spacing:1px;font-weight:bold;">ANSWER</p>'
-            )
-            # Render line by line so bullets and code blocks are clean
             in_code = False
             code_lines = []
             for line in text.splitlines():
                 stripped = line.strip()
 
-                # code block toggle
                 if stripped.startswith("```"):
                     if not in_code:
                         in_code = True
@@ -820,9 +865,9 @@ class MainWindow(QMainWindow):
                         code_html = (
                             '<pre style="background:#0d1117;color:#a8ff78;'
                             'font-family:Consolas,monospace;font-size:12px;'
-                            'padding:8px 12px;border-left:3px solid #4a7eff;'
-                            'margin:4px 0 8px 0;white-space:pre-wrap;">'
-                            + "\n".join(code_lines)
+                            'padding:10px 14px;border-left:3px solid #4a7eff;'
+                            'border-radius:4px;margin:6px 0 10px 0;white-space:pre-wrap;">'
+                            + html.escape("\n".join(code_lines))
                             + "</pre>"
                         )
                         self.chat_display.append(code_html)
@@ -835,23 +880,27 @@ class MainWindow(QMainWindow):
                 if not stripped:
                     self.chat_display.append('<p style="margin:2px;"> </p>')
                 elif stripped.startswith("•"):
-                    # bullet point — highlighted row
-                    point_text = stripped[1:].strip()
+                    point_text = html.escape(stripped[1:].strip())
                     self.chat_display.append(
                         '<p style="color:#e2e8f0;font-size:13px;'
-                        'margin:3px 0 3px 8px;line-height:1.5;">'
-                        '<span style="color:#4a7eff;font-weight:bold;">•</span> '
+                        'margin:3px 0 3px 8px;line-height:1.6;">'
+                        '<span style="color:#4a7eff;">•</span> '
                         f'{point_text}</p>'
                     )
-                else:
-                    # opening sentence or plain text
+                elif stripped.startswith("→"):
+                    intro_text = html.escape(stripped[1:].strip())
                     self.chat_display.append(
-                        f'<p style="color:#94a3b8;font-size:13px;'
-                        f'margin:4px 0 6px 0;font-style:italic;">{stripped}</p>'
+                        f'<p style="color:#f8fafc;font-size:13px;'
+                        f'margin:6px 0 4px 0;line-height:1.6;">{intro_text}</p>'
+                    )
+                else:
+                    self.chat_display.append(
+                        f'<p style="color:#e2e8f0;font-size:13px;'
+                        f'margin:3px 0 4px 0;line-height:1.6;">{html.escape(stripped)}</p>'
                     )
 
             self.chat_display.append(
-                '<hr style="border:none;border-top:1px solid #1e293b;margin:8px 0 10px 0;">'
+                '<hr style="border:none;border-top:1px solid #1e293b;margin:10px 0 12px 0;">'
             )
 
         elif role in ("You", "Interviewer", "Screen"):
@@ -860,15 +909,13 @@ class MainWindow(QMainWindow):
             self.chat_display.append(
                 f'<p style="color:{lcolor};font-size:10px;margin:8px 0 2px 0;'
                 f'letter-spacing:1px;font-weight:bold;">{label}</p>'
-                f'<p style="color:#64748b;font-size:12px;margin:0 0 4px 0;">{text}</p>'
+                f'<p style="color:#64748b;font-size:12px;margin:0 0 4px 0;">{html.escape(text)}</p>'
             )
         else:
             self.chat_display.append(
                 f'<p style="color:{color};font-size:11px;margin:4px 0;'
-                f'font-style:italic;">{text}</p>'
+                f'font-style:italic;">{html.escape(text)}</p>'
             )
-
-        self.chat_display.ensureCursorVisible()
 
         self.chat_display.ensureCursorVisible()
 

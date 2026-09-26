@@ -65,11 +65,11 @@ def extract_question_from_screen(image: Image.Image, api_key: str) -> str:
                             "type": "text",
                             "text": (
                                 "Look at this screenshot carefully. "
-                                "Extract ONLY the interview question or coding problem "
-                                "that is visible on the screen. "
+                                "Extract ONLY the interview question or coding problem visible on screen. "
                                 "Return just the question text, nothing else. "
                                 "If there are multiple questions, return all of them. "
-                                "If no clear question is visible, describe what is on the screen."
+                                "If there is NO interview question or coding problem visible, "
+                                "reply with exactly: NONE"
                             ),
                         },
                     ],
