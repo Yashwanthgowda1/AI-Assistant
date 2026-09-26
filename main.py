@@ -12,7 +12,7 @@ Features:
   • Global hotkey  Ctrl+Shift+Space  to show/hide
 """
 from __future__ import annotations
-import sys, os, logging, threading
+import sys, os, logging, threading, html
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -46,6 +46,20 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Worker thread — runs AI + web-search off the GUI thread
 # ─────────────────────────────────────────────────────────────────────────────
+_WEB_KEYWORDS = (
+    "latest", "current", "today", "recent", "2024", "2025", "2026", "news",
+    "who is", "when did", "how much", "price", "version", "release", "update",
+)
+
+
+def _needs_web(question: str) -> bool:
+    """Only search the web for questions that need current/factual info.
+    Coding, concept and behavioural interview answers don't need it — skipping
+    the search removes seconds of latency."""
+    q = question.lower()
+    return any(kw in q for kw in _WEB_KEYWORDS)
+
+
 class AnswerWorker(QThread):
     answer_ready  = pyqtSignal(str)
     status_update = pyqtSignal(str)
@@ -60,23 +74,19 @@ class AnswerWorker(QThread):
 
     def run(self):
         try:
-            # Run web search and AI call in parallel threads for speed
             import concurrent.futures
             context = ""
-            if self.use_web:
+            if self.use_web and _needs_web(self.question):
                 self.status_update.emit("Searching + thinking…")
-                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-                    web_future = ex.submit(format_context, self.question)
-                    # Start AI immediately with no context, then retry with context if web is fast
-                    context = web_future.result(timeout=4)  # max 4s wait for web
+                try:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                        web_future = ex.submit(format_context, self.question)
+                        context = web_future.result(timeout=2)  # max 2s wait for web
+                except concurrent.futures.TimeoutError:
+                    context = ""  # web too slow — answer without it
             else:
                 self.status_update.emit("Thinking…")
             answer = self.ai.chat(self.question, context=context, resume=self.resume)
-            self.answer_ready.emit(answer)
-        except concurrent.futures.TimeoutError:
-            # Web took too long — answer without context
-            self.status_update.emit("Answering (web timeout)…")
-            answer = self.ai.chat(self.question, context="", resume=self.resume)
             self.answer_ready.emit(answer)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -487,6 +497,16 @@ class MainWindow(QMainWindow):
         )
         key_row.addWidget(show_key_btn)
         root.addLayout(key_row)
+
+        # ── active provider indicator ─────────────────────────────
+        self.provider_indicator = QLabel()
+        self.provider_indicator.setStyleSheet(
+            "color:#86efac; background:#14532d; font-size:11px; font-weight:bold;"
+            "padding:3px 10px; border-radius:4px;"
+        )
+        self._update_provider_indicator()
+        root.addWidget(self.provider_indicator)
+
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
         self.chat_display.setMinimumHeight(380)
@@ -601,7 +621,6 @@ class MainWindow(QMainWindow):
     # ── provider / model ─────────────────────────────────────────
     def _quick_provider_change(self, provider: str):
         self._refresh_model_combo(provider)
-        # load saved key for this provider from env
         key_map = {
             "groq":    os.getenv("GROQ_API_KEY", ""),
             "mistral": os.getenv("MISTRAL_API_KEY", ""),
@@ -609,12 +628,15 @@ class MainWindow(QMainWindow):
             "ollama":  "",
         }
         env_key = key_map.get(provider, "")
-        # keep whatever the user manually typed if it's already there
-        current_key = self.api_key_input.text().strip()
-        if not current_key:
-            self.api_key_input.setText(env_key)
-        self.ai.update(provider, self.model_cb.currentText(),
-                       api_key=current_key or env_key)
+        # always switch the key field to the new provider's key (clears old provider's key)
+        self.api_key_input.setText(env_key)
+        self.ai.update(provider, self.model_cb.currentText(), api_key=env_key)
+        self._update_provider_indicator()
+
+    def _update_provider_indicator(self):
+        p = self.ai.provider or "unknown"
+        m = self.ai.model or "—"
+        self.provider_indicator.setText(f"Active: {p.upper()}  |  {m}")
 
     def _quick_model_change(self, model: str):
         self.ai.model = model
@@ -622,7 +644,8 @@ class MainWindow(QMainWindow):
     def _on_api_key_changed(self):
         key = self.api_key_input.text().strip()
         self.ai.api_key = key
-        self.ai._setup()   # re-init client with new key
+        self.ai._setup()
+        self._update_provider_indicator()
         self.status_bar.showMessage(
             f"API key updated for {self.ai.provider}" if key else "API key cleared"
         )
@@ -670,6 +693,11 @@ class MainWindow(QMainWindow):
         question = self.question_input.text().strip()
         if not question:
             return
+        # apply any key typed in the field that hasn't been committed yet
+        typed_key = self.api_key_input.text().strip()
+        if typed_key and typed_key != self.ai.api_key:
+            self.ai.api_key = typed_key
+            self.ai._setup()
         self.question_input.clear()
         self._append_chat("You", question, "#61dafb")
         self._run_worker(question)
@@ -677,6 +705,8 @@ class MainWindow(QMainWindow):
     def _run_worker(self, question: str):
         if self.worker and self.worker.isRunning():
             self.worker.quit()
+
+        self.status_bar.showMessage(f"Using: {self.ai.provider} / {self.ai.model}")
 
         self.worker = AnswerWorker(
             question, self.ai, self.web_chk.isChecked(),
@@ -806,7 +836,8 @@ class MainWindow(QMainWindow):
         self._screen_worker.start()
 
     def _on_screen_question(self, question: str):
-        if not question:
+        q = question.strip()
+        if not q or q.upper() == "NONE" or q.upper().startswith("NONE"):
             self.status_bar.showMessage("No question found on screen")
             return
         self._append_chat("Screen", question, "#f0a500")
@@ -836,7 +867,7 @@ class MainWindow(QMainWindow):
                             'font-family:Consolas,monospace;font-size:12px;'
                             'padding:10px 14px;border-left:3px solid #4a7eff;'
                             'border-radius:4px;margin:6px 0 10px 0;white-space:pre-wrap;">'
-                            + "\n".join(code_lines)
+                            + html.escape("\n".join(code_lines))
                             + "</pre>"
                         )
                         self.chat_display.append(code_html)
@@ -849,7 +880,7 @@ class MainWindow(QMainWindow):
                 if not stripped:
                     self.chat_display.append('<p style="margin:2px;"> </p>')
                 elif stripped.startswith("•"):
-                    point_text = stripped[1:].strip()
+                    point_text = html.escape(stripped[1:].strip())
                     self.chat_display.append(
                         '<p style="color:#e2e8f0;font-size:13px;'
                         'margin:3px 0 3px 8px;line-height:1.6;">'
@@ -857,7 +888,7 @@ class MainWindow(QMainWindow):
                         f'{point_text}</p>'
                     )
                 elif stripped.startswith("→"):
-                    intro_text = stripped[1:].strip()
+                    intro_text = html.escape(stripped[1:].strip())
                     self.chat_display.append(
                         f'<p style="color:#f8fafc;font-size:13px;'
                         f'margin:6px 0 4px 0;line-height:1.6;">{intro_text}</p>'
@@ -865,7 +896,7 @@ class MainWindow(QMainWindow):
                 else:
                     self.chat_display.append(
                         f'<p style="color:#e2e8f0;font-size:13px;'
-                        f'margin:3px 0 4px 0;line-height:1.6;">{stripped}</p>'
+                        f'margin:3px 0 4px 0;line-height:1.6;">{html.escape(stripped)}</p>'
                     )
 
             self.chat_display.append(
@@ -878,15 +909,13 @@ class MainWindow(QMainWindow):
             self.chat_display.append(
                 f'<p style="color:{lcolor};font-size:10px;margin:8px 0 2px 0;'
                 f'letter-spacing:1px;font-weight:bold;">{label}</p>'
-                f'<p style="color:#64748b;font-size:12px;margin:0 0 4px 0;">{text}</p>'
+                f'<p style="color:#64748b;font-size:12px;margin:0 0 4px 0;">{html.escape(text)}</p>'
             )
         else:
             self.chat_display.append(
                 f'<p style="color:{color};font-size:11px;margin:4px 0;'
-                f'font-style:italic;">{text}</p>'
+                f'font-style:italic;">{html.escape(text)}</p>'
             )
-
-        self.chat_display.ensureCursorVisible()
 
         self.chat_display.ensureCursorVisible()
 
