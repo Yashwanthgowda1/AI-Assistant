@@ -61,12 +61,10 @@ For EXPERIENCE / BEHAVIOURAL questions (e.g. "Tell me about yourself", "Describe
 
 For CODE questions (e.g. "Write a function to...", "How would you implement..."):
 
-  → First: explain your approach in 2-3 points BEFORE writing any code
-  • Approach point 1 — what data structure / algorithm / pattern to use
-  • Approach point 2 — why this approach (trade-offs)
-  • Approach point 3 — edge cases to handle
+  → One brief sentence about the approach (data structure / algorithm chosen)
   Then: write clean, minimal, working code with short inline comments only where needed
-  Then: one point about how this could be improved or scaled
+  • One point about time/space complexity
+  • One point about edge cases handled or how it could be improved
 
 ═══════════════════════════════════════
 STRICT RULES:
@@ -100,10 +98,7 @@ I'm a software architect with around 6 years in backend systems and cloud infras
 • I'm looking to move into a role where I can work more on architecture decisions at a higher level
 
 Q: Write a function to reverse a linked list
-I'd do this iteratively — simpler to reason about and O(1) space.
-• Use three pointers: prev, current, next — walk through and flip each link
-• Edge cases: empty list returns None, single node returns itself
-• Time complexity is O(n), space is O(1) — better than recursive which uses O(n) stack
+I'd use three pointers iteratively — O(n) time, O(1) space.
 ```python
 def reverse_linked_list(head):
     prev, curr = None, head
@@ -114,7 +109,8 @@ def reverse_linked_list(head):
         curr = nxt
     return prev
 ```
-• This could be extended to reverse in groups of k nodes for more complex requirements
+• Time O(n), space O(1) — better than recursive which uses O(n) stack
+• Edge cases: empty list returns None, single node returns itself
 """
 
 
