@@ -1,93 +1,598 @@
-AI Interview Assistant & Interview Copilot
+# AI Interview Assistant & Interview Copilot
 
-License: http://www.apache.org/licenses/
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](http://www.apache.org/licenses/LICENSE-2.0)
 
-AI-Assistant is an open-source, real-time AI interview assistant and interview copilot for technical and behavioral interviews. It runs as a small floating desktop overlay that can listen to a live interview call, read a question straight off your screen, or take dictation from your own voice — then draws on your resume and a few live web search results to suggest an answer, using the LLM provider of your choice.
+AI-Assistant is an open-source, real-time AI interview assistant for technical and behavioral interview preparation.
 
-<!-- Add a screenshot or short screen-recording GIF of the overlay in action here — it helps both visitors deciding to try the project and Google Images traffic. -->
+It provides a floating desktop interface that can accept questions through text, voice, meeting audio, or screen analysis and generate AI-powered answers using your selected AI provider.
 
+---
 
-Features
-Multiple LLM providers — Groq (llama-3.3-70b-versatile by default, generous free tier), a fully local and free Ollama model, Mistral AI, or OpenAI. Switch providers from the settings panel or a single .env variable. or from the Ui can pass
-Live meeting audio — listens to your system/loopback audio (whatever's playing from Zoom, Google Meet, Microsoft Teams, etc.) and transcribes it automatically in real time, a few seconds at a time.
-Voice dictation — click the mic button to ask a question out loud instead of typing it.
-Screen understanding — the "Analyse Screen" button captures a screenshot read and extract the question directly, with no separate OCR step.
-Resume-aware answers — upload a PDF or DOCX resume once, and answers can reference your real background and experience.
-Live web search grounding — pulls a few DuckDuckGo results (no API key needed) into the prompt so answers can reflect current information.
-Stealth overlay, on by default — an always-on-top, semi-transparent window that, on Windows 10 (build 2004+) and 11, is excluded from screen-share and screen-recording tools (Zoom, Teams, Google Meet, OBS) via the Windows SetWindowDisplayAffinity API. Toggle the whole window with the global hotkey Ctrl+Shift+Space.
+## Features
 
-How It Works
-The app opens as a small, floating, always-on-top window (hidden from screen-share by default on Windows).
-It picks up a question three ways: transcribing your meeting's audio, vision-based screen reading, or your own typed/dictated input.
-That question is combined with your resume text and a short web search summary into one prompt.
-The prompt is sent to whichever LLM provider you've configured —ex:  Groq, OpenAI, Mistral, or a local Ollama model.
-The model's answer is displayed back in the overlay.
-Project Structure
+* 🤖 **Multiple AI Providers**
 
-File	Purpose
-main.py / __main__.py	App entry point and PyQt5 GUI (the overlay window itself)
-ai_client.py	Unified chat client across Groq, Ollama, Mistral, and OpenAI-compatible endpoints
-meeting_listener.py	Real-time loopback audio capture and transcription of meeting audio
-voice_client.py	Background microphone listener for voice dictation
-image_client.py	Screenshot capture and vision-based screen reading
-resume_client.py	Parses an uploaded PDF/DOCX/TXT resume into plain text
-search_client.py	Lightweight DuckDuckGo web search for grounding answers
-stealth.py	Hides the overlay window from screen-capture and screen-share tools on Windows
-run.bat	Sets up a virtual environment, installs dependencies, and launches the app
-Requirements
-Windows 10 (build 2004 or later) or Windows 11. Meeting-audio loopback capture (pyaudiowpatch) and the stealth overlay (pywin32) both rely on Windows-only APIs, so macOS/Linux aren't supported yet. On unsupported Windows builds, stealth mode simply fails to activate and the window stays visible.
-Python 3.10+ (recommended)
-At least one of: a Groq API key (free tier), an OpenAI API key, a Mistral AI API key, or a local Ollama install
-A microphone (for voice dictation) and a working audio-output/loopback device (for meeting-audio capture)
-Installation
-bash
+  * Groq
+  * OpenAI
+  * Mistral AI
+  * Ollama
+
+* 🎤 **Voice Input**
+
+  * Ask questions using your microphone.
+
+* 🎧 **Meeting Audio Transcription**
+
+  * Capture system/loopback audio from applications such as:
+
+    * Zoom
+    * Google Meet
+    * Microsoft Teams
+
+* 🖥️ **Screen Analysis**
+
+  * Capture the current screen.
+  * Extract interview questions directly from the screen.
+
+* 📄 **Resume-Aware Answers**
+
+  * Upload your PDF, DOCX, or TXT resume.
+  * Use your resume information while generating answers.
+
+* 🌐 **Live Web Search**
+
+  * Uses DuckDuckGo search results to provide additional context.
+
+* 🪟 **Floating Desktop Overlay**
+
+  * Always-on-top interface.
+  * Toggle the overlay using:
+
+```text
+Ctrl + Shift + Space
+```
+
+---
+
+# How It Works
+
+```text
+Interview Question
+        |
+        v
++-------------------------+
+| Question Input          |
+|                         |
+| • Type                  |
+| • Voice                 |
+| • Meeting Audio         |
+| • Screen Analysis       |
++------------+------------+
+             |
+             v
++-------------------------+
+| Context                 |
+|                         |
+| • Resume                |
+| • Web Search            |
++------------+------------+
+             |
+             v
++-------------------------+
+| AI Provider             |
+|                         |
+| • Groq                  |
+| • OpenAI                |
+| • Mistral               |
+| • Ollama                |
++------------+------------+
+             |
+             v
+      Generated Answer
+             |
+             v
+       AI Assistant UI
+```
+
+---
+
+# Requirements
+
+Before installing the application, make sure you have:
+
+### Operating System
+
+* Windows 10 Build 2004 or later
+* Windows 11
+
+> Meeting-audio loopback and Windows overlay functionality currently depend on Windows-specific APIs.
+
+### Python
+
+* Python 3.10 or later
+
+Check your Python version:
+
+```cmd
+python --version
+```
+
+### AI Provider
+
+You need at least one of:
+
+* Groq API key
+* OpenAI API key
+* Mistral AI API key
+* Local Ollama installation
+
+### Hardware
+
+For voice and meeting features:
+
+* Working microphone
+* Working audio-output/loopback device
+
+---
+
+# Installation
+
+## Step 1: Clone the Repository
+
+Open **Command Prompt** or **PowerShell** and run:
+
+```cmd
 git clone https://github.com/Yashwanthgowda1/AI-Assistant.git
+```
+
+Move into the project directory:
+
+```cmd
 cd AI-Assistant
+```
+
+---
+
+## Step 2: Create a Virtual Environment
+
+Create a Python virtual environment:
+
+```cmd
+python -m venv venv
+```
+
+Activate the virtual environment:
+
+### Command Prompt
+
+```cmd
+venv\Scripts\activate
+```
+
+### PowerShell
+
+```powershell
+venv\Scripts\Activate.ps1
+```
+
+After activation, you should see something similar to:
+
+```text
+(venv) C:\...\AI-Assistant>
+```
+
+---
+
+## Step 3: Install Dependencies
+
+Install the required Python packages:
+
+```cmd
 pip install -r requirements.txt
+```
 
-Copy the example environment file and fill in at least one API key:
+---
 
-bat
+## Step 4: Create the `.env` File
+
+Copy the example environment file:
+
+### Command Prompt
+
+```cmd
 copy .env.example .env
-Configuration
+```
 
-Set these in your .env file:
+### PowerShell
 
-Variable	Description
-GROQ_API_KEY	API key from console.groq.com
-MISTRAL_API_KEY	API key from Mistral AI — also used for screen/vision analysis
-OPENAI_API_KEY	API key from OpenAI
-AI_PROVIDER	groq, ollama, mistral, or openai
-AI_MODEL	Model name for the selected provider (default: llama-3.3-70b-versatile)
-Usage
-bat
+```powershell
+Copy-Item .env.example .env
+```
+
+---
+
+# Configuration
+
+Open the `.env` file and configure your preferred AI provider.
+
+## Option 1: Groq
+
+```env
+AI_PROVIDER=groq
+AI_MODEL=llama-3.3-70b-versatile
+GROQ_API_KEY=your_groq_api_key
+```
+
+## Option 2: OpenAI
+
+```env
+AI_PROVIDER=openai
+AI_MODEL=your_openai_model
+OPENAI_API_KEY=your_openai_api_key
+```
+
+## Option 3: Mistral AI
+
+```env
+AI_PROVIDER=mistral
+AI_MODEL=your_mistral_model
+MISTRAL_API_KEY=your_mistral_api_key
+```
+
+## Option 4: Ollama
+
+Install and run Ollama locally, then configure:
+
+```env
+AI_PROVIDER=ollama
+AI_MODEL=your_local_model
+```
+
+---
+
+# Environment Variables
+
+| Variable          | Description                                           |
+| ----------------- | ----------------------------------------------------- |
+| `AI_PROVIDER`     | AI provider: `groq`, `openai`, `mistral`, or `ollama` |
+| `AI_MODEL`        | Model used by the selected provider                   |
+| `GROQ_API_KEY`    | Groq API key                                          |
+| `OPENAI_API_KEY`  | OpenAI API key                                        |
+| `MISTRAL_API_KEY` | Mistral AI API key                                    |
+
+> Never commit your `.env` file or API keys to GitHub.
+
+---
+
+# Run the Application
+
+There are two ways to start the application.
+
+## Method 1: Using `run.bat`
+
+From the project directory:
+
+```cmd
 run.bat
+```
 
-This creates a virtual environment, installs dependencies, and launches the app. The window is hidden from screen-share by default — press Ctrl+Shift+Space to show or hide it.
+The script will set up the environment, install dependencies, and launch the application.
 
-If your environment is already set up, you can also run:
+---
 
-bash
+## Method 2: Run Using Python
+
+If the environment is already configured:
+
+```cmd
 python main.py
+```
 
-From the app itself:
+---
 
-Type a question, or click the mic button to dictate it.
-Click Analyse Screen to have it read a question straight off your screen.
-Click Upload Resume once so answers can reference your background.
-Toggle Meeting to transcribe your call's audio automatically.
-Use the settings panel to pick a provider/model or update API keys.
-Use Cases
-Rehearsing answers to common technical and behavioral interview questions before the real thing.
-Getting unstuck on a live coding or take-home question by having the screen read automatically.
-Practicing how to talk through your own resume and experience out loud.
-Real-time support during a live video interview on Zoom, Google Meet, or Microsoft Teams.
-Responsible Use
+# Quick Start
 
-This is built to sit on top of a real video call, with screen-share hiding on by default, so it's worth being deliberate about when and how you use it. Many employers and interview platforms have explicit policies against undisclosed AI assistance during live interviews, and some video-conferencing tools are starting to detect overlays like this one — using it live without disclosure can violate those policies or a candidate agreement. It's on you to know the rules of whatever process you're in. The software itself is provided as-is, with no warranty.
+After starting the application:
 
-Contributing
+### Step 1: Enter a Question
 
-Issues and pull requests are welcome. macOS/Linux support, additional LLM or transcription providers, and general bug fixes are all good places to start — open an issue first if you're planning something larger.
+Type an interview question into the input box.
 
-If this is useful, a ⭐ on the repo helps other people searching for an AI interview assistant find it too.
+Example:
+
+```text
+Explain the difference between Selenium and Playwright.
+```
+
+Click the button to generate an answer.
+
+---
+
+### Step 2: Use Voice Input
+
+Click the **Microphone** button.
+
+Speak your question.
+
+The application converts your voice input into text and sends it to the configured AI provider.
+
+---
+
+### Step 3: Analyse the Screen
+
+Click:
+
+```text
+Analyse Screen
+```
+
+The application captures the screen and uses vision-based analysis to identify the question.
+
+This is useful for questions displayed in:
+
+* Browser pages
+* Coding platforms
+* Documents
+* Interview applications
+
+---
+
+### Step 4: Upload Your Resume
+
+Click:
+
+```text
+Upload Resume
+```
+
+Select your resume:
+
+```text
+PDF
+DOCX
+TXT
+```
+
+The application extracts the resume content and uses it as context when generating answers.
+
+---
+
+### Step 5: Enable Meeting Audio
+
+Enable:
+
+```text
+Meeting
+```
+
+The application can capture supported system/loopback audio and transcribe the conversation.
+
+Supported meeting applications can include:
+
+* Zoom
+* Google Meet
+* Microsoft Teams
+
+---
+
+### Step 6: Select AI Provider
+
+Open the **Settings** panel.
+
+Select your preferred provider:
+
+```text
+Groq
+OpenAI
+Mistral
+Ollama
+```
+
+You can also configure the model and API settings from the application where supported.
+
+---
+
+### Step 7: Toggle the Overlay
+
+Use the global keyboard shortcut:
+
+```text
+Ctrl + Shift + Space
+```
+
+to show or hide the floating assistant window.
+
+---
+
+# Example Workflow
+
+A typical workflow looks like this:
+
+```text
+1. Clone repository
+        ↓
+2. Install dependencies
+        ↓
+3. Configure .env
+        ↓
+4. Select AI provider
+        ↓
+5. Start application
+        ↓
+6. Upload resume
+        ↓
+7. Enter / speak / capture question
+        ↓
+8. AI processes the question
+        ↓
+9. Answer is displayed
+```
+
+---
+
+# Project Structure
+
+```text
+AI-Assistant/
+│
+├── main.py
+├── __main__.py
+├── ai_client.py
+├── meeting_listener.py
+├── voice_client.py
+├── image_client.py
+├── resume_client.py
+├── search_client.py
+├── stealth.py
+├── run.bat
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+| File                  | Purpose                                 |
+| --------------------- | --------------------------------------- |
+| `main.py`             | Application entry point and PyQt5 GUI   |
+| `__main__.py`         | Application module entry point          |
+| `ai_client.py`        | AI provider integration                 |
+| `meeting_listener.py` | Meeting audio capture and transcription |
+| `voice_client.py`     | Microphone and voice input              |
+| `image_client.py`     | Screenshot capture and screen analysis  |
+| `resume_client.py`    | Resume parsing                          |
+| `search_client.py`    | DuckDuckGo web search                   |
+| `stealth.py`          | Windows screen-capture exclusion        |
+| `run.bat`             | Application setup and launcher          |
+| `.env.example`        | Environment configuration template      |
+
+---
+
+# Use Cases
+
+* Technical interview preparation
+* Behavioral interview preparation
+* Coding interview practice
+* Resume-based interview questions
+* Voice-based interview practice
+* Screen-based question analysis
+* Meeting audio transcription
+* AI-powered answer generation
+* Interview learning and practice
+
+---
+
+# Screen Overlay
+
+The application provides an always-on-top floating window.
+
+On supported Windows versions, the application can use the Windows `SetWindowDisplayAffinity` API for screen-capture exclusion.
+
+Use:
+
+```text
+Ctrl + Shift + Space
+```
+
+to toggle the overlay.
+
+> Screen-capture and screen-sharing behavior depends on the Windows version and the application being used.
+
+---
+
+# Responsible Use
+
+This project can be used for interview preparation, practice, and learning.
+
+Before using AI assistance during an actual interview, check the rules of the employer, interviewer, assessment platform, or interview process. Some interview processes may restrict or prohibit undisclosed AI assistance.
+
+Use the software according to the applicable rules and requirements.
+
+---
+
+# Troubleshooting
+
+## Python Command Not Found
+
+Check that Python is installed:
+
+```cmd
+python --version
+```
+
+If the command is not recognized, install Python and ensure it is added to your system PATH.
+
+---
+
+## Dependencies Not Installed
+
+Activate the virtual environment and run:
+
+```cmd
+pip install -r requirements.txt
+```
+
+---
+
+## Application Does Not Start
+
+Try running:
+
+```cmd
+python main.py
+```
+
+Check the terminal output for the error message.
+
+---
+
+## AI Provider Error
+
+Check your `.env` file and verify:
+
+* `AI_PROVIDER` is correct.
+* `AI_MODEL` is valid.
+* The required API key is configured.
+* The API key is valid.
+
+---
+
+## Meeting Audio Is Not Detected
+
+Check that:
+
+* Your Windows audio output device is working.
+* A loopback-compatible audio device is available.
+* The required permissions are enabled.
+* The meeting application is producing audio.
+
+---
+
+# Contributing
+
+Contributions are welcome.
+
+You can contribute by:
+
+* Reporting bugs
+* Improving documentation
+* Adding AI providers
+* Adding transcription providers
+* Improving the user interface
+* Adding macOS/Linux support
+* Fixing bugs
+* Improving performance
+
+For larger changes, open an issue before submitting a pull request.
+
+---
+
+# License
+
+This project is licensed under the **Apache License 2.0**.
+
+[Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0)
+
+---
+
+# Repository
+
+[AI-Assistant](https://github.com/Yashwanthgowda1/AI-Assistant)
