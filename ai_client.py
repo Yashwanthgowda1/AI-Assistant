@@ -15,10 +15,11 @@ logger = logging.getLogger(__name__)
 
 # ── model presets ────────────────────────────────────────────────
 GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
     "gemma2-9b-it",
+    "gemma-7b-it",
 ]
 OLLAMA_MODELS = [
     "llama3.2",
@@ -207,7 +208,7 @@ class AIClient:
         resp = self._client.chat.completions.create(
             model=self.model,
             messages=messages,
-            max_tokens=512,
+            max_tokens=1500,
             temperature=0.5,
         )
         return resp.choices[0].message.content.strip()
@@ -217,7 +218,7 @@ class AIClient:
         resp = requests.post(
             f"{self.ollama_url}/api/chat",
             json={"model": self.model, "messages": messages, "stream": False,
-                  "options": {"num_predict": 512, "temperature": 0.5}},
+                  "options": {"num_predict": 1500, "temperature": 0.5}},
             timeout=60,
         )
         resp.raise_for_status()
@@ -229,7 +230,7 @@ class AIClient:
         resp = self._client.chat.complete(
             model=self.model,
             messages=messages,
-            max_tokens=512,
+            max_tokens=1500,
             temperature=0.5,
         )
         return resp.choices[0].message.content.strip()
@@ -240,7 +241,7 @@ class AIClient:
         resp = self._client.chat.completions.create(
             model=self.model,
             messages=messages,
-            max_tokens=512,
+            max_tokens=1500,
             temperature=0.5,
         )
         return resp.choices[0].message.content.strip()

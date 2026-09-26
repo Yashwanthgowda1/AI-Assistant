@@ -146,19 +146,11 @@ class MeetingFilterWorker(QThread):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Worker — waits for MeetingListener to stop, then transcribes all audio
+# Qt signal bridge — lets the meeting listener thread emit into the GUI thread
 # ─────────────────────────────────────────────────────────────────────────────
-class TranscribeWorker(QThread):
-    done = pyqtSignal(str)
-
-    def __init__(self, listener):
-        super().__init__()
-        self.listener = listener
-
-    def run(self):
-        self.listener.join(timeout=10)
-        text = self.listener.transcribe_all()
-        self.done.emit(text)
+class _MeetingTextSignal(QThread):
+    text_ready = pyqtSignal(str)
+    def run(self): pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -382,8 +374,8 @@ class MainWindow(QMainWindow):
             Qt.Tool
         )
         self.setWindowOpacity(0.95)
-        self.setMinimumSize(540, 480)
-        self.resize(680, 750)
+        self.setMinimumSize(700, 600)
+        self.resize(900, 950)
         self.setStyleSheet(DARK_STYLE)
 
         central = QWidget()
@@ -435,27 +427,44 @@ class MainWindow(QMainWindow):
 
         # ── provider quick-select row ─────────────────────────────
         prov_row = QHBoxLayout()
-        prov_row.addWidget(QLabel("Provider:"))
+        prov_lbl = QLabel("Provider:")
+        prov_lbl.setStyleSheet("font-weight:bold; font-size:13px;")
+        prov_row.addWidget(prov_lbl)
         self.provider_cb = QComboBox()
         self.provider_cb.addItems(["groq", "ollama", "mistral", "openai"])
         self.provider_cb.setCurrentText(self.ai.provider)
-        self.provider_cb.setFixedWidth(100)
+        self.provider_cb.setFixedWidth(110)
+        self.provider_cb.setStyleSheet("font-size:13px; padding:4px 8px;")
         self.provider_cb.currentTextChanged.connect(self._quick_provider_change)
         prov_row.addWidget(self.provider_cb)
 
-        prov_row.addWidget(QLabel("Model:"))
-        self.model_cb = QComboBox()
-        self.model_cb.setEditable(True)
-        self.model_cb.setMinimumWidth(180)
-        self._refresh_model_combo(self.ai.provider)
-        self.model_cb.currentTextChanged.connect(self._quick_model_change)
-        prov_row.addWidget(self.model_cb)
-
-        self.web_chk = QCheckBox("Web")
+        self.web_chk = QCheckBox("Web Search")
         self.web_chk.setChecked(True)
         self.web_chk.setToolTip("Enrich answer with DuckDuckGo search")
+        self.web_chk.setStyleSheet("font-size:12px;")
         prov_row.addWidget(self.web_chk)
         root.addLayout(prov_row)
+
+        # ── model selection row (prominent) ───────────────────────
+        model_row = QHBoxLayout()
+        model_lbl = QLabel("🤖  Model:")
+        model_lbl.setStyleSheet("font-weight:bold; font-size:14px; color:#e94560;")
+        model_row.addWidget(model_lbl)
+        self.model_cb = QComboBox()
+        self.model_cb.setEditable(True)
+        self.model_cb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.model_cb.setMinimumHeight(32)
+        self.model_cb.setStyleSheet(
+            "QComboBox { font-size:14px; font-weight:bold; padding:4px 10px; "
+            "border:2px solid #e94560; border-radius:6px; color:#e0e0e0; "
+            "background:#16213e; }"
+            "QComboBox QAbstractItemView { font-size:13px; }"
+        )
+        self._refresh_model_combo(self.ai.provider)
+        self.model_cb.currentTextChanged.connect(self._quick_model_change)
+        self._attach_model_completer()
+        model_row.addWidget(self.model_cb, 1)
+        root.addLayout(model_row)
 
         # ── API key + model name (editable directly in UI) ────────
         key_row = QHBoxLayout()
@@ -626,6 +635,22 @@ class MainWindow(QMainWindow):
             self.model_cb.addItems(models)
         self.model_cb.setCurrentText(self.ai.model if self.ai.model and self.ai.model in models else (models[0] if models else ""))
         self.model_cb.blockSignals(False)
+        if hasattr(self, "model_cb"):
+            self._attach_model_completer()
+
+    def _attach_model_completer(self):
+        from PyQt5.QtWidgets import QCompleter
+        from PyQt5.QtCore import Qt
+        models = [self.model_cb.itemText(i) for i in range(self.model_cb.count())]
+        completer = QCompleter(models, self.model_cb)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.popup().setStyleSheet(
+            "QListView { background:#16213e; color:#e0e0e0; font-size:13px; "
+            "border:1px solid #e94560; selection-background-color:#0f3460; }"
+        )
+        self.model_cb.setCompleter(completer)
 
     def _open_settings(self):
         dlg = SettingsDialog(self.ai, self)
@@ -721,7 +746,11 @@ class MainWindow(QMainWindow):
             self._start_meeting()
 
     def _start_meeting(self):
-        self.meeting_listener = MeetingListener()
+        self._meeting_signal = _MeetingTextSignal()
+        self._meeting_signal.text_ready.connect(self._on_meeting_text)
+        self.meeting_listener = MeetingListener(
+            on_text=lambda t: self._meeting_signal.text_ready.emit(t)
+        )
         self.meeting_listener.start_listening()
         self.meeting_active = True
         self.meeting_btn.setText("🔴 Stop Listening")
@@ -729,25 +758,16 @@ class MainWindow(QMainWindow):
         self.meeting_btn.setStyleSheet(
             "QPushButton{background:#c0392b;font-size:13px;}"
         )
-        self.status_bar.showMessage("🎧 Recording meeting audio… click Stop to transcribe & answer")
+        self.status_bar.showMessage("🎧 Listening live — transcribes every 5 s automatically")
 
     def _stop_meeting(self):
         if self.meeting_listener:
             self.meeting_listener.stop_listening()
-            self.status_bar.showMessage("Transcribing meeting audio… please wait")
-            self._transcribe_worker = TranscribeWorker(self.meeting_listener)
-            self._transcribe_worker.done.connect(self._on_meeting_transcribed)
-            self._transcribe_worker.start()
         self.meeting_active = False
         self.meeting_btn.setText("🎧 Meeting Listen")
         self.meeting_btn.setProperty("active", "false")
         self.meeting_btn.setStyleSheet("")
-
-    def _on_meeting_transcribed(self, text: str):
-        if not text:
-            self.status_bar.showMessage("No speech detected in recording")
-            return
-        self._on_meeting_text(text)
+        self.status_bar.showMessage("Meeting listener stopped")
 
     def _on_meeting_text(self, text: str):
         worker = MeetingFilterWorker(text, self.ai, self._resume_text, self.web_chk.isChecked())
@@ -800,17 +820,11 @@ class MainWindow(QMainWindow):
         self.chat_display.setTextCursor(cursor)
 
         if role == "Assistant":
-            self.chat_display.append(
-                '<p style="color:#4a7eff;font-size:10px;margin:10px 0 4px 0;'
-                'letter-spacing:1px;font-weight:bold;">ANSWER</p>'
-            )
-            # Render line by line so bullets and code blocks are clean
             in_code = False
             code_lines = []
             for line in text.splitlines():
                 stripped = line.strip()
 
-                # code block toggle
                 if stripped.startswith("```"):
                     if not in_code:
                         in_code = True
@@ -820,8 +834,8 @@ class MainWindow(QMainWindow):
                         code_html = (
                             '<pre style="background:#0d1117;color:#a8ff78;'
                             'font-family:Consolas,monospace;font-size:12px;'
-                            'padding:8px 12px;border-left:3px solid #4a7eff;'
-                            'margin:4px 0 8px 0;white-space:pre-wrap;">'
+                            'padding:10px 14px;border-left:3px solid #4a7eff;'
+                            'border-radius:4px;margin:6px 0 10px 0;white-space:pre-wrap;">'
                             + "\n".join(code_lines)
                             + "</pre>"
                         )
@@ -835,23 +849,27 @@ class MainWindow(QMainWindow):
                 if not stripped:
                     self.chat_display.append('<p style="margin:2px;"> </p>')
                 elif stripped.startswith("•"):
-                    # bullet point — highlighted row
                     point_text = stripped[1:].strip()
                     self.chat_display.append(
                         '<p style="color:#e2e8f0;font-size:13px;'
-                        'margin:3px 0 3px 8px;line-height:1.5;">'
-                        '<span style="color:#4a7eff;font-weight:bold;">•</span> '
+                        'margin:3px 0 3px 8px;line-height:1.6;">'
+                        '<span style="color:#4a7eff;">•</span> '
                         f'{point_text}</p>'
                     )
-                else:
-                    # opening sentence or plain text
+                elif stripped.startswith("→"):
+                    intro_text = stripped[1:].strip()
                     self.chat_display.append(
-                        f'<p style="color:#94a3b8;font-size:13px;'
-                        f'margin:4px 0 6px 0;font-style:italic;">{stripped}</p>'
+                        f'<p style="color:#f8fafc;font-size:13px;'
+                        f'margin:6px 0 4px 0;line-height:1.6;">{intro_text}</p>'
+                    )
+                else:
+                    self.chat_display.append(
+                        f'<p style="color:#e2e8f0;font-size:13px;'
+                        f'margin:3px 0 4px 0;line-height:1.6;">{stripped}</p>'
                     )
 
             self.chat_display.append(
-                '<hr style="border:none;border-top:1px solid #1e293b;margin:8px 0 10px 0;">'
+                '<hr style="border:none;border-top:1px solid #1e293b;margin:10px 0 12px 0;">'
             )
 
         elif role in ("You", "Interviewer", "Screen"):
