@@ -65,12 +65,14 @@ class AnswerWorker(QThread):
     status_update = pyqtSignal(str)
     error         = pyqtSignal(str)
 
-    def __init__(self, question: str, ai: AIClient, use_web: bool, resume: str = ""):
+    def __init__(self, question: str, ai: AIClient, use_web: bool,
+                 resume: str = "", history: list = None):
         super().__init__()
         self.question = question
         self.ai       = ai
         self.use_web  = use_web
         self.resume   = resume
+        self.history  = history or []
 
     def run(self):
         try:
@@ -81,12 +83,13 @@ class AnswerWorker(QThread):
                 try:
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                         web_future = ex.submit(format_context, self.question)
-                        context = web_future.result(timeout=2)  # max 2s wait for web
+                        context = web_future.result(timeout=2)
                 except concurrent.futures.TimeoutError:
-                    context = ""  # web too slow — answer without it
+                    context = ""
             else:
                 self.status_update.emit("Thinking…")
-            answer = self.ai.chat(self.question, context=context, resume=self.resume)
+            answer = self.ai.chat(self.question, context=context,
+                                  resume=self.resume, history=self.history)
             self.answer_ready.emit(answer)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -699,6 +702,7 @@ class MainWindow(QMainWindow):
             self.ai.api_key = typed_key
             self.ai._setup()
         self.question_input.clear()
+        self._chat_history.append(("user", question))
         self._append_chat("You", question, "#61dafb")
         self._run_worker(question)
 
@@ -708,9 +712,11 @@ class MainWindow(QMainWindow):
 
         self.status_bar.showMessage(f"Using: {self.ai.provider} / {self.ai.model}")
 
+        # pass last 4 exchanges (8 messages) so the AI has context without exceeding token limits
         self.worker = AnswerWorker(
             question, self.ai, self.web_chk.isChecked(),
-            resume=self._resume_text
+            resume=self._resume_text,
+            history=self._chat_history[-8:],
         )
         self.worker.answer_ready.connect(self._on_answer)
         self.worker.status_update.connect(lambda s: self.status_bar.showMessage(s))
