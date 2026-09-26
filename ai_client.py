@@ -15,11 +15,10 @@ logger = logging.getLogger(__name__)
 
 # ── model presets ────────────────────────────────────────────────
 GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
     "openai/gpt-oss-120b",
+    "llama-3.3-70b-versatile",
+    "qwen/qwen3.8-27b",
     "openai/gpt-oss-20b",
-    "gemma2-9b-it",
 ]
 OLLAMA_MODELS = [
     "llama3.2",
@@ -330,7 +329,8 @@ class AIClient:
                     logger.warning("openai package not installed")
 
     # ── chat ─────────────────────────────────────────────────────
-    def chat(self, question: str, context: str = "", system: str = "", resume: str = "") -> str:
+    def chat(self, question: str, context: str = "", system: str = "",
+             resume: str = "", history: list = None) -> str:
         sys_msg = system or INTERVIEW_SYSTEM
         if resume:
             sys_msg += f"\n\n═══════════════════════════════════════════\nMY RESUME / BACKGROUND (use this to personalise answers):\n═══════════════════════════════════════════\n{resume}\n"
@@ -339,10 +339,13 @@ class AIClient:
         if context:
             user_msg = f"Web search context (use naturally, don't mention 'search results'):\n{context}\n\nQuestion: {question}"
 
-        messages = [
-            {"role": "system", "content": sys_msg},
-            {"role": "user",   "content": user_msg},
-        ]
+        messages = [{"role": "system", "content": sys_msg}]
+
+        # inject conversation history so the model remembers previous exchanges
+        for role, content in (history or []):
+            messages.append({"role": role, "content": content})
+
+        messages.append({"role": "user", "content": user_msg})
         try:
             if self.provider == "groq":
                 return self._groq_chat(messages)
