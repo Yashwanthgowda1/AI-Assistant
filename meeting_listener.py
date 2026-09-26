@@ -194,7 +194,6 @@ class MeetingListener(threading.Thread):
                 _capture_soundcard(self._stop, on_chunk)
             except Exception as exc2:
                 logger.exception("Both audio backends failed: %s", exc2)
-
         # flush any remaining audio when stopped
         self._flush_buffer()
         logger.info("Meeting listener stopped")
